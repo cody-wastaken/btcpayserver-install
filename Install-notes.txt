@@ -1,0 +1,73 @@
+# Setting up LVM 
+sudo apt-get -y install lvm2
+sudo lvmdiskscan #Check available drives
+sudo pvcreate /dev/sda
+sudo pvscan #List physical volumes
+sudo lvcreate -l 100%FREE -n data_volume data_disk
+sudo lvs #List logical volumes
+
+#Setting up LUKS
+sudo apt-get -y install cryptsetup parted
+sudo cryptsetup -y -v luksFormat /dev/data_disk/data_volume
+sudo cryptsetup -v luksOpen /dev/data_disk/data_volume crypt_data
+sudo mkfs -t ext4 /dev/mapper/crypt_data
+sudo mkdir -p /mnt/data
+
+#Decrypt and Mount drive
+sudo cryptsetup -v luksOpen /dev/data_disk/data_volume crypt_data
+sudo mount -v /dev/mapper/crypt_data /mnt/data/
+
+#Install pre-reqs
+sudo apt-get -y install docker docker-compose git tmux certbot nginx socat tor
+
+#Configure docker
+systemctl stop docker.service
+systemctl stop docker.socket
+rsync -aqxP /var/lib/docker/ /mnt/data/docker
+nano /lib/systemd/system/docker.service
+# Change the following line:
+# ExecStart=/usr/bin/dockerd --data-root /mnt/data/docker -H fd:// --containerd=/run/containerd/containerd.sock
+systemctl daemon-reload
+systemctl start docker
+
+#Setup Firewall
+ufw default deny incoming
+ufw default allow outgoing
+for i in ssh http https; do ufw allow $i;done
+ufw enable
+
+#Clone BTCPay repo
+git clone https://github.com/btcpayserver/btcpayserver-docker && cd btcpayserver-docker
+
+#Export envvars
+export BTCPAY_HOST="btcpaydemo.wastaken.com"
+export NBITCOIN_NETWORK="mainnet"
+export BTCPAYGEN_CRYPTO1="btc"
+export BTCPAYGEN_EXCLUDE_FRAGMENTS="$BTCPAYGEN_EXCLUDE_FRAGMENTS;nginx-https"
+export REVERSEPROXY_HTTP_PORT=10080
+export REVERSEPROXY_HTTPS_PORT=443
+
+#Run install script
+sudo su - #Script must be run as root
+. btcpay-setup.sh -i
+
+#configure certificate
+export ACME_CA_URI="https://acme-staging-v02.api.letsencrypt.org/directory"
+# OR, for Production
+export ACME_CA_URI="https://acme-v02.api.letsencrypt.org/directory"
+export LETSENCRYPT_EMAIL="cody@wastaken.com"
+certbot certonly --standalone --preferred-challenges http -d btcpaydemo.wastaken.com
+
+#Setup nginx
+touch /etc/nginx/sites-available/btcpayserverdemo
+nano /etc/nginx/sites-available/btcpayserverdemo
+#paste the config from this URL:
+#https://docs.btcpayserver.org/FAQ/Deployment/#can-i-use-an-existing-nginx-server-as-a-reverse-proxy-with-ssl-termination
+#Edit the servername to your record
+ln -s /etc/nginx/sites-available/btcpayserverdemo /etc/nginx/sites-enabled/btcpayserverdemo
+nano /etc/nginx/nginx.conf
+#Edit with config from above URL
+service nginx configtest
+
+#Validation
+du -sh /mnt/data/docker/volumes/generated_bitcoin_datadir/_data/ #Find size of blockchain dir

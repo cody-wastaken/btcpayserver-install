@@ -1,0 +1,20 @@
+OS-prep 
+
+adduser cody
+usermod -aG sudo cody
+ssh-copy-id cody@209.141.53.165
+sudo hostnamectl set-hostname slicewastaken
+
+sudo nano /etc/ssh/sshd_config
+sudo sshd -t
+sudo systemctl reload sshd.service
+
+Bitcoin datadir:
+/mnt/data/docker/volumes/generated_bitcoin_datadir/_data/
+
+LVM Partition recovery
+scp lvm-backup.tar.gz cody@slice.wastaken.com:/home/cody
+cp /home/cody/lvm-backup.tar.gz /etc/lvm/
+cd /etc/lvm
+tar -xvzf lvm-backup.tar.gz
+
